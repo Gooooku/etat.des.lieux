@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>État des Lieux</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="État des Lieux">
+<meta name="theme-color" content="#1a2e4a">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --primary: #1a2e4a;
+    --primary-light: #2c4a72;
+    --accent: #c8a96e;
+    --accent-light: #e8d5a8;
+    --bg: #f5f3ef;
+    --surface: #fff;
+    --surface2: #f9f8f5;
+    --border: #ddd8cc;
+    --text: #1a1a18;
+    --text2: #5a5850;
+    --text3: #9a9690;
+    --success: #2d6a4f;
+    --danger: #8b2020;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --header-h: 56px;
+    --nav-h: 50px;
+    --footer-h: 72px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: Georgia, serif; background: var(--bg); color: var(--text); font-size: 16px; }
+
+  /* Layout fixe — pas de position:sticky qui cause des bugs Safari */
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  #app-header {
+    background: var(--primary); color: white;
+    padding: 0 20px;
+    height: var(--header-h);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  #app-header h1 { font-size: 18px; font-weight: 400; }
+  #app-header small { font-size: 11px; opacity: 0.6; display: block; margin-top: 2px; }
+
+  #progress-bar { height: 3px; background: var(--primary-light); flex-shrink: 0; }
+  #progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+
+  #steps-nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    height: var(--nav-h);
+    display: flex;
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  #steps-nav::-webkit-scrollbar { display: none; }
+  .step-btn {
+    padding: 0 16px;
+    border: none; background: none;
+    cursor: pointer;
+    font-family: Georgia, serif; font-size: 13px;
+    color: var(--text3);
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+    height: 100%;
+    -webkit-appearance: none;
+    touch-action: manipulation;
+  }
+  .step-btn.active { color: var(--primary); border-bottom-color: var(--accent); font-weight: bold; }
+  .step-btn.completed { color: var(--success); }
+  .step-num { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; background: var(--bg); color: var(--text3); }
+  .step-btn.active .step-num { background: var(--accent); color: white; }
+  .step-btn.completed .step-num { background: var(--success); color: white; }
+
+  /* Zone scrollable principale */
+  #content {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 24px 20px 20px;
+  }
+
+  #footer-nav {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    height: var(--footer-h);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    flex-shrink: 0;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  }
+  #step-label { font-size: 13px; color: var(--text3); }
+
+  /* Pages */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+  .card-header { background: var(--primary); color: white; padding: 13px 18px; font-size: 15px; display: flex; align-items: center; justify-content: space-between; }
+  .card-body { padding: 18px; }
+
+  /* Fields */
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
+  .field-row.single { grid-template-columns: 1fr; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--text2); letter-spacing: 0.5px; text-transform: uppercase; }
+  .field input, .field select, .field textarea {
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 10px 13px; font-family: Georgia, serif; font-size: 15px;
+    color: var(--text); background: var(--surface2); width: 100%;
+    -webkit-appearance: none; appearance: none;
+    outline: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary-light); background: white; }
+  .field textarea { min-height: 75px; resize: vertical; line-height: 1.5; }
+  select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+
+  /* Buttons */
+  .btn { border-radius: var(--radius-sm); font-family: Georgia, serif; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; touch-action: manipulation; -webkit-appearance: none; }
+  .btn-primary { background: var(--primary); color: white; border: none; padding: 13px 24px; font-size: 15px; }
+  .btn-secondary { background: none; color: var(--primary); border: 1.5px solid var(--primary); padding: 11px 20px; font-size: 14px; }
+  .btn-accent { background: var(--accent); color: var(--primary); border: none; padding: 13px 24px; font-size: 15px; font-weight: bold; }
+  .btn-add { background: none; border: 1.5px dashed var(--border); padding: 9px 16px; font-size: 13px; color: var(--text3); }
+  .btn-remove { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 13px; cursor: pointer; color: var(--danger); font-size: 18px; line-height: 1; touch-action: manipulation; }
+
+  /* Room cards */
+  .room-card { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 14px; overflow: hidden; }
+  .room-header { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 13px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; touch-action: manipulation; }
+  .room-header h3 { font-size: 15px; color: var(--primary); font-weight: normal; }
+  .room-toggle { font-size: 18px; color: var(--text3); transition: transform 0.3s; }
+  .room-toggle.open { transform: rotate(180deg); }
+  .room-body { padding: 16px; display: none; }
+  .room-body.open { display: block; }
+
+  /* State */
+  .state-group { display: flex; gap: 8px; margin-top: 6px; }
+  .state-btn { flex: 1; padding: 10px 6px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface2); cursor: pointer; font-family: Georgia, serif; font-size: 13px; color: var(--text2); text-align: center; touch-action: manipulation; -webkit-appearance: none; }
+  .state-btn.selected-bon { background: #e8f5e9; border-color: var(--success); color: var(--success); font-weight: bold; }
+  .state-btn.selected-moyen { background: #fff8e1; border-color: #b8860b; color: #b8860b; font-weight: bold; }
+  .state-btn.selected-mauvais { background: #fef2f2; border-color: var(--danger); color: var(--danger); font-weight: bold; }
+
+  /* Photos */
+  .photo-section { margin-top: 14px; }
+  .photo-section > label { font-size: 11px; color: var(--text2); letter-spacing: 0.5px; text-transform: uppercase; display: block; margin-bottom: 8px; }
+  .photo-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .photo-item { display: flex; flex-direction: column; gap: 5px; width: 105px; }
+  .photo-thumb { width: 105px; height: 105px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); position: relative; }
+  .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-thumb .remove-photo { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.65); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; touch-action: manipulation; }
+  .photo-caption { font-size: 12px; font-family: Georgia, serif; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; background: var(--surface2); color: var(--text); width: 105px; resize: none; line-height: 1.3; outline: none; }
+  .photo-add { width: 105px; height: 105px; border: 2px dashed var(--border); border-radius: var(--radius-sm); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--text3); font-size: 12px; gap: 4px; background: var(--surface2); touch-action: manipulation; }
+  .photo-add .plus { font-size: 26px; line-height: 1; }
+  input[type=file] { display: none; }
+
+  /* Key row */
+  .key-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px; }
+
+  /* Signatures */
+  .sig-container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+  .sig-box { text-align: center; }
+  .sig-box label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .sig-canvas { border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: white; touch-action: none; cursor: crosshair; display: block; width: 100%; }
+  .sig-clear { margin-top: 6px; background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 12px; font-family: Georgia, serif; font-size: 13px; color: var(--text2); cursor: pointer; touch-action: manipulation; }
+
+  /* Summary */
+  .summary-block { background: var(--surface2); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); }
+  .summary-block h4 { font-size: 13px; color: var(--text2); margin-bottom: 8px; font-weight: normal; letter-spacing: 0.5px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row span:first-child { color: var(--text2); }
+
+  .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); margin-bottom: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+  .mention-box { background: var(--accent-light); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 12px; font-size: 13px; color: var(--primary); line-height: 1.6; margin-bottom: 16px; }
+  .save-indicator { font-size: 11px; color: var(--success); text-align: right; margin-bottom: 8px; }
+
+  @media (max-width: 600px) {
+    .field-row, .field-row.three { grid-template-columns: 1fr; }
+    .sig-container { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="app-header">
+    <div>
+      <h1>État des lieux</h1>
+      <small id="header-subtitle">Nouveau document</small>
+    </div>
+    <div style="font-size:11px;opacity:0.6">🇨🇭</div>
+  </div>
+  <div id="progress-bar"><div id="progress-fill" style="width:16.6%"></div></div>
+  <div id="steps-nav">
+    <button class="step-btn active" id="nav-0" onclick="goTo(0)"><span class="step-num">1</span>Infos</button>
+    <button class="step-btn" id="nav-1" onclick="goTo(1)"><span class="step-num">2</span>Clés</button>
+    <button class="step-btn" id="nav-2" onclick="goTo(2)"><span class="step-num">3</span>Pièces</button>
+    <button class="step-btn" id="nav-3" onclick="goTo(3)"><span class="step-num">4</span>Annexes</button>
+    <button class="step-btn" id="nav-4" onclick="goTo(4)"><span class="step-num">5</span>Signatures</button>
+    <button class="step-btn" id="nav-5" onclick="goTo(5)"><span class="step-num">6</span>Récap</button>
+  </div>
+
+  <div id="content">
+    <div id="save-bar" class="save-indicator" style="display:none">✓ Sauvegardé</div>
+
+    <!-- PAGE 0 -->
+    <div class="page active" id="page-0">
+      <div class="card">
+        <div class="card-header">Informations du bien</div>
+        <div class="card-body">
+          <div class="field-row single"><div class="field"><label>Adresse</label><input type="text" id="bien-adresse" placeholder="Rue et numéro" oninput="autoSave()"></div></div>
+          <div class="field-row three">
+            <div class="field"><label>NPA</label><input type="text" id="bien-npa" placeholder="1200" oninput="autoSave()"></div>
+            <div class="field"><label>Ville</label><input type="text" id="bien-ville" placeholder="Genève" oninput="autoSave()"></div>
+            <div class="field"><label>Canton</label><input type="text" id="bien-canton" placeholder="GE" oninput="autoSave()"></div>
+          </div>
+          <div class="field-row three">
+            <div class="field"><label>Type</label><select id="bien-type" onchange="autoSave()"><option>Appartement</option><option>Maison</option><option>Studio</option></select></div>
+            <div class="field"><label>Pièces</label><input type="text" id="bien-pieces" placeholder="3.5" oninput="autoSave()"></div>
+            <div class="field"><label>Étage</label><input type="text" id="bien-etage" placeholder="2ème" oninput="autoSave()"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Surface (m²)</label><input type="text" id="bien-surface" placeholder="75.00" oninput="autoSave()"></div>
+            <div class="field"><label>Réf.</label><input type="text" id="bien-ref" placeholder="Optionnel" oninput="autoSave()"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Type d'état des lieux</div>
+        <div class="card-body">
+          <div class="field-row">
+            <div class="field"><label>Type</label><select id="edl-type" onchange="autoSave()"><option value="entree">Entrée</option><option value="sortie">Sortie</option></select></div>
+            <div class="field"><label>Date</label><input type="date" id="edl-date" onchange="autoSave()"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Bailleur</div>
+        <div class="card-body">
+          <div class="field-row">
+            <div class="field"><label>Nom complet</label><input type="text" id="bailleur-nom" placeholder="Jean Dupont" oninput="autoSave()"></div>
+            <div class="field"><label>Téléphone</label><input type="text" id="bailleur-tel" placeholder="+41 79 000 00 00" oninput="autoSave()"></div>
+          </div>
+          <div class="field-row single"><div class="field"><label>Adresse</label><input type="text" id="bailleur-adresse" placeholder="Rue, NPA Ville" oninput="autoSave()"></div></div>
+          <div class="field-row single"><div class="field"><label>Email</label><input type="email" id="bailleur-email" placeholder="email@exemple.ch" oninput="autoSave()"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Locataire(s)</div>
+        <div class="card-body" id="locataires-container">
+          <div class="locataire-block" id="locataire-0">
+            <p class="section-title">Locataire 1</p>
+            <div class="field-row">
+              <div class="field"><label>Nom complet</label><input type="text" data-field="nom" placeholder="Marie Martin" oninput="autoSave()"></div>
+              <div class="field"><label>Téléphone</label><input type="text" data-field="tel" placeholder="+41 79 000 00 00" oninput="autoSave()"></div>
+            </div>
+            <div class="field-row single"><div class="field"><label>Email</label><input type="email" data-field="email" placeholder="email@exemple.ch" oninput="autoSave()"></div></div>
+            <div class="field-row single"><div class="field"><label>Date d'entrée</label><input type="date" data-field="dateEntree" onchange="autoSave()"></div></div>
+          </div>
+        </div>
+        <div style="padding:0 18px 18px"><button class="btn btn-add" onclick="addLocataire()">+ Ajouter un locataire</button></div>
+      </div>
+    </div>
+
+    <!-- PAGE 1 -->
+    <div class="page" id="page-1">
+      <div class="card">
+        <div class="card-header">Clés remises</div>
+        <div class="card-body">
+          <div id="cles-container">
+            <div class="key-row">
+              <div class="field"><label>Type</label><select onchange="autoSave()"><option>Appartement</option><option>Entrée immeuble</option><option>Boîte aux lettres</option><option>Cave</option><option>Parking / Garage</option><option>Communs</option><option>Autre</option></select></div>
+              <div class="field"><label>Qté</label><input type="number" value="1" min="0" oninput="autoSave()"></div>
+              <button class="btn-remove" onclick="removeCle(this)">×</button>
+            </div>
+          </div>
+          <button class="btn btn-add" onclick="addCle()" style="margin-top:8px">+ Ajouter</button>
+          <div class="divider"></div>
+          <div class="photo-section">
+            <label>Photos des clés</label>
+            <div class="photo-grid" id="photos-cles"><div class="photo-add" onclick="triggerPhoto('input-cles')"><span class="plus">+</span><span>Photo</span></div></div>
+            <input type="file" id="input-cles" accept="image/*" multiple onchange="addPhotos(this,'cles','Clés')">
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Relevé des compteurs</div>
+        <div class="card-body">
+          <div id="compteurs-container">
+            <div class="comp-row" style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:12px">
+              <div class="field"><label>Type</label><select onchange="autoSave()"><option>Eau froide</option><option>Eau chaude</option><option>Électricité</option><option>Gaz</option><option>Chauffage</option></select></div>
+              <div class="field"><label>Valeur</label><input type="text" placeholder="1234.5 m³" oninput="autoSave()"></div>
+            </div>
+          </div>
+          <button class="btn btn-add" onclick="addCompteur()">+ Ajouter</button>
+          <div class="divider"></div>
+          <div class="photo-section">
+            <label>Photos des compteurs</label>
+            <div class="photo-grid" id="photos-compteurs"><div class="photo-add" onclick="triggerPhoto('input-compteurs')"><span class="plus">+</span><span>Photo</span></div></div>
+            <input type="file" id="input-compteurs" accept="image/*" multiple onchange="addPhotos(this,'compteurs','Compteur')">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 2 -->
+    <div class="page" id="page-2">
+      <div class="mention-box">📋 Touchez chaque pièce pour la développer. Ajoutez l'état, vos observations et photos.</div>
+      <div id="rooms-container"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-add" onclick="addChambre()">+ Ajouter une chambre</button>
+        <button class="btn btn-add" onclick="addCustomRoom()">+ Autre pièce</button>
+      </div>
+    </div>
+
+    <!-- PAGE 3 -->
+    <div class="page" id="page-3">
+      <div class="card">
+        <div class="card-header">Remarques générales</div>
+        <div class="card-body">
+          <div class="field-row single"><div class="field"><label>Observations</label><textarea id="remarques-generales" rows="5" placeholder="Notes générales..." oninput="autoSave()"></textarea></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Informations de signature</div>
+        <div class="card-body">
+          <div class="field-row single"><div class="field"><label>Ville de signature</label><input type="text" id="ville-signature" placeholder="ex: Genève" oninput="autoSave()"></div></div>
+          <div class="field-row single"><div class="field"><label>Autres personnes présentes</label><textarea id="presentes" rows="3" placeholder="ex: Jean Dupont (gérant)" oninput="autoSave()"></textarea></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 4 -->
+    <div class="page" id="page-4">
+      <div class="card">
+        <div class="card-header">Signatures</div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Signez avec votre doigt ou un stylet.</p>
+          <div class="sig-container" id="sig-container">
+            <div class="sig-box">
+              <label>Bailleur</label>
+              <canvas class="sig-canvas" id="sig-bailleur" width="300" height="150"></canvas>
+              <button class="sig-clear" onclick="clearSig('sig-bailleur')">Effacer</button>
+            </div>
+            <div class="sig-box">
+              <label>Locataire 1</label>
+              <canvas class="sig-canvas" id="sig-locataire" width="300" height="150"></canvas>
+              <button class="sig-clear" onclick="clearSig('sig-locataire')">Effacer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 5 -->
+    <div class="page" id="page-5">
+      <div id="summary-content"></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:20px;padding-bottom:20px">
+        <button class="btn btn-accent" onclick="generatePDF()">⬇ Générer le PDF</button>
+        <button class="btn btn-secondary" onclick="goTo(0)">✎ Modifier</button>
+        <button class="btn btn-secondary" onclick="exportData()" style="border-color:#2d6a4f;color:#2d6a4f">💾 Sauvegarder</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()" style="border-color:#b5611a;color:#b5611a">📂 Importer</button>
+        <input type="file" id="import-file" accept=".json" onchange="importData(this)">
+        <button class="btn btn-add" onclick="clearAll()" style="color:var(--danger);border-color:var(--danger)">🗑 Effacer tout</button>
+      </div>
+    </div>
+  </div><!-- end #content -->
+
+  <div id="footer-nav">
+    <button class="btn btn-secondary" id="btn-prev" onclick="prevPage()">← Précédent</button>
+    <span id="step-label">1 / 6</span>
+    <button class="btn btn-primary" id="btn-next" onclick="nextPage()">Suivant →</button>
+  </div>
+</div><!-- end #app -->
+
+<script>
+// ===== STATE =====
+let currentPage = 0;
+const TOTAL = 6;
+let locataireCount = 1;
+let chambreCount = 1;
+let photoStore = {}; // key -> [{data, datetime, label, caption}]
+let saveTimer = null;
+
+const DEFAULT_ROOMS = [
+  {id:'hall', name:'Hall / Entrée'},
+  {id:'salon', name:'Séjour / Salon'},
+  {id:'cuisine', name:'Cuisine'},
+  {id:'chambre1', name:'Chambre 1'},
+  {id:'sdb', name:'Salle de bains'},
+  {id:'wc', name:'WC séparé'},
+  {id:'balcon', name:'Balcon'},
+  {id:'cave', name:'Cave'},
+  {id:'parking', name:'Parking / Garage'},
+];
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('edl-date').value = new Date().toISOString().split('T')[0];
+  buildRooms();
+  initSignatures();
+  loadFromStorage();
+  updateNav();
+});
+
+// ===== NAVIGATION =====
+function goTo(p) {
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  document.getElementById('page-' + p).classList.add('active');
+  document.querySelectorAll('.step-btn').forEach((b, i) => {
+    b.classList.remove('active','completed');
+    if(i === p) b.classList.add('active');
+    else if(i < p) b.classList.add('completed');
+  });
+  currentPage = p;
+  updateNav();
+  if(p === 5) buildSummary();
+  document.getElementById('content').scrollTop = 0;
+}
+function nextPage() { if(currentPage < TOTAL-1) goTo(currentPage+1); }
+function prevPage() { if(currentPage > 0) goTo(currentPage-1); }
+function updateNav() {
+  document.getElementById('progress-fill').style.width = ((currentPage+1)/TOTAL*100).toFixed(1)+'%';
+  document.getElementById('step-label').textContent = (currentPage+1)+' / '+TOTAL;
+  document.getElementById('btn-prev').style.visibility = currentPage===0?'hidden':'visible';
+  document.getElementById('btn-next').style.display = currentPage===TOTAL-1?'none':'inline-flex';
+  const a=document.getElementById('bien-adresse').value, v=document.getElementById('bien-ville').value;
+  document.getElementById('header-subtitle').textContent = a ? a+(v?', '+v:'') : 'Nouveau document';
+}
+
+// ===== LOCATAIRES =====
+function addLocataire() {
+  const c = document.getElementById('locataires-container');
+  const d = document.createElement('div'); d.className='locataire-block';
+  const num = locataireCount + 1;
+  const sigId = 'sig-locataire-' + locataireCount;
+  d.innerHTML=`<div class="divider"></div>
+    <p class="section-title">Locataire ${num} <button class="btn-remove" onclick="removeLocataire(this,'${sigId}')" style="float:right;padding:2px 10px;font-size:14px">×</button></p>
+    <div class="field-row"><div class="field"><label>Nom complet</label><input type="text" data-field="nom" placeholder="Prénom Nom" oninput="autoSave()"></div><div class="field"><label>Téléphone</label><input type="text" data-field="tel" placeholder="+41 79 000 00 00" oninput="autoSave()"></div></div>
+    <div class="field-row single"><div class="field"><label>Email</label><input type="email" data-field="email" placeholder="email@exemple.ch" oninput="autoSave()"></div></div>
+    <div class="field-row single"><div class="field"><label>Date d'entrée</label><input type="date" data-field="dateEntree" onchange="autoSave()"></div></div>`;
+  c.appendChild(d);
+  locataireCount++;
+  // Ajouter une zone de signature pour ce locataire
+  addSignatureBox(sigId, 'Locataire ' + num);
+}
+
+function removeLocataire(btn, sigId) {
+  btn.closest('.locataire-block').remove();
+  const sigBox = document.getElementById('sigbox-' + sigId);
+  if(sigBox) sigBox.remove();
+  autoSave();
+}
+
+function addSignatureBox(sigId, label) {
+  const container = document.getElementById('sig-container');
+  const box = document.createElement('div');
+  box.className = 'sig-box'; box.id = 'sigbox-' + sigId;
+  box.innerHTML = `<label>${label}</label>
+    <canvas class="sig-canvas" id="${sigId}" width="300" height="150"></canvas>
+    <button class="sig-clear" onclick="clearSig('${sigId}')">Effacer</button>`;
+  container.appendChild(box);
+  initOneSignature(sigId);
+}
+
+// ===== CLÉS =====
+function addCle() {
+  const d=document.createElement('div'); d.className='key-row';
+  d.innerHTML=`<div class="field"><label>Type</label><select onchange="autoSave()"><option>Appartement</option><option>Entrée immeuble</option><option>Boîte aux lettres</option><option>Cave</option><option>Parking / Garage</option><option>Communs</option><option>Autre</option></select></div>
+    <div class="field"><label>Qté</label><input type="number" value="1" min="0" oninput="autoSave()"></div>
+    <button class="btn-remove" onclick="this.closest('.key-row').remove();autoSave()">×</button>`;
+  document.getElementById('cles-container').appendChild(d);
+}
+function removeCle(btn) { if(document.querySelectorAll('.key-row').length>1) { btn.closest('.key-row').remove(); autoSave(); } }
+
+// ===== COMPTEURS =====
+function addCompteur() {
+  const d=document.createElement('div'); d.className='comp-row';
+  d.style.cssText='display:grid;grid-template-columns:2fr 1fr auto;gap:10px;align-items:end;margin-bottom:12px';
+  d.innerHTML=`<div class="field"><label>Type</label><select onchange="autoSave()"><option>Eau froide</option><option>Eau chaude</option><option>Électricité</option><option>Gaz</option><option>Chauffage</option></select></div>
+    <div class="field"><label>Valeur</label><input type="text" placeholder="0.0 m³" oninput="autoSave()"></div>
+    <button class="btn-remove" onclick="this.closest('.comp-row').remove();autoSave()">×</button>`;
+  document.getElementById('compteurs-container').appendChild(d);
+}
+
+// ===== ROOMS =====
+function createRoomCard(id, name) {
+  if(!photoStore[id]) photoStore[id]=[];
+  const div=document.createElement('div');
+  div.className='room-card'; div.id='room-'+id;
+  div.innerHTML=`
+    <div class="room-header" onclick="toggleRoom('${id}')">
+      <h3>${name}</h3><span class="room-toggle" id="toggle-${id}">▾</span>
+    </div>
+    <div class="room-body" id="body-${id}">
+      <div class="field" style="margin-bottom:14px">
+        <label>État général</label>
+        <div class="state-group">
+          <button class="state-btn" onclick="selectState(this,'bon')">✓ Bon état</button>
+          <button class="state-btn" onclick="selectState(this,'moyen')">~ Moyen</button>
+          <button class="state-btn" onclick="selectState(this,'mauvais')">✗ Mauvais</button>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label>Observations / Défauts</label>
+        <textarea id="obs-${id}" rows="3" placeholder="Ex: Rayure sur le parquet..." oninput="autoSave()"></textarea>
+      </div>
+      <div class="photo-section">
+        <label>Photos <span style="font-size:11px;color:var(--text3);text-transform:none;letter-spacing:0">(légende sous chaque photo)</span></label>
+        <div class="photo-grid" id="photos-${id}">
+          <div class="photo-add" onclick="triggerPhoto('input-${id}')"><span class="plus">+</span><span>Ajouter</span></div>
+        </div>
+        <input type="file" id="input-${id}" accept="image/*" multiple capture="environment" onchange="addPhotos(this,'${id}','${name}')">
+      </div>
+    </div>`;
+  return div;
+}
+
+function buildRooms() {
+  const c=document.getElementById('rooms-container');
+  DEFAULT_ROOMS.forEach(r => c.appendChild(createRoomCard(r.id, r.name)));
+}
+function toggleRoom(id) {
+  document.getElementById('body-'+id).classList.toggle('open');
+  document.getElementById('toggle-'+id).classList.toggle('open');
+}
+function selectState(btn, state) {
+  btn.closest('.state-group').querySelectorAll('.state-btn').forEach(b => b.className='state-btn');
+  btn.classList.add('selected-'+state);
+  autoSave();
+}
+function addChambre() {
+  chambreCount++;
+  const id='chambre'+chambreCount, name='Chambre '+chambreCount;
+  const sdb=document.getElementById('room-sdb');
+  document.getElementById('rooms-container').insertBefore(createRoomCard(id,name), sdb);
+  toggleRoom(id);
+}
+function addCustomRoom() {
+  const name=prompt('Nom de la pièce :'); if(!name) return;
+  const id='custom-'+Date.now();
+  document.getElementById('rooms-container').appendChild(createRoomCard(id,name));
+  toggleRoom(id);
+}
+
+// ===== PHOTOS =====
+function compressImage(dataUrl, maxWidth, quality, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    let w = img.width, h = img.height;
+    if(w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', quality));
+  };
+  img.src = dataUrl;
+}
+
+function triggerPhoto(inputId) { document.getElementById(inputId).click(); }
+function addPhotos(input, key, label) {
+  const grid=document.getElementById('photos-'+key);
+  const addBtn=grid.querySelector('.photo-add');
+  if(!photoStore[key]) photoStore[key]=[];
+  Array.from(input.files).forEach(file => {
+    const now=new Date();
+    const datetime=now.toLocaleDateString('fr-CH')+' - '+now.toLocaleTimeString('fr-CH',{hour:'2-digit',minute:'2-digit'});
+    const reader=new FileReader();
+    reader.onload=e => {
+    compressImage(e.target.result, 1600, 0.85, compressed => {
+        const entry={data:compressed, datetime, label, caption:''};
+        photoStore[key].push(entry);
+        const idx=photoStore[key].length-1;
+        const item=document.createElement('div'); item.className='photo-item';
+        const thumb=document.createElement('div'); thumb.className='photo-thumb';
+        thumb.innerHTML=`<img src="${compressed}"><button class="remove-photo" onclick="removePhoto('${key}',${idx},this)">×</button>`;
+        const cap=document.createElement('textarea');
+        cap.className='photo-caption'; cap.rows=2; cap.placeholder='Légende...';
+        cap.addEventListener('input', ()=>{ photoStore[key][idx].caption=cap.value; autoSave(); });
+        item.appendChild(thumb); item.appendChild(cap);
+        grid.insertBefore(item, addBtn);
+        autoSave();
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value='';
+}
+function removePhoto(key, idx, btn) {
+  photoStore[key].splice(idx,1);
+  btn.closest('.photo-item').remove();
+  autoSave();
+}
+
+// ===== SIGNATURES =====
+function initOneSignature(id) {
+  const canvas=document.getElementById(id); if(!canvas) return;
+  const ctx=canvas.getContext('2d'); let drawing=false, lx, ly;
+  canvas.style.width='100%'; canvas.style.height='150px';
+  function pos(e) {
+    const r=canvas.getBoundingClientRect();
+    const sx=canvas.width/r.width, sy=canvas.height/r.height;
+    const s=e.touches?e.touches[0]:e;
+    return {x:(s.clientX-r.left)*sx, y:(s.clientY-r.top)*sy};
+  }
+  function start(e) { e.preventDefault(); drawing=true; const p=pos(e); lx=p.x; ly=p.y; }
+  function draw(e) { e.preventDefault(); if(!drawing) return; const p=pos(e); ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(p.x,p.y); ctx.strokeStyle='#1a2e4a'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.stroke(); lx=p.x; ly=p.y; }
+  function stop() { drawing=false; }
+  canvas.addEventListener('mousedown',start); canvas.addEventListener('mousemove',draw); canvas.addEventListener('mouseup',stop);
+  canvas.addEventListener('touchstart',start,{passive:false}); canvas.addEventListener('touchmove',draw,{passive:false}); canvas.addEventListener('touchend',stop);
+}
+function initSignatures() {
+  initOneSignature('sig-bailleur');
+  initOneSignature('sig-locataire');
+}
+function clearSig(id) { const c=document.getElementById(id); c.getContext('2d').clearRect(0,0,c.width,c.height); }
+
+// ===== AUTO-SAVE (localStorage) =====
+function autoSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const data = collectFormData();
+      localStorage.setItem('edl_data', JSON.stringify(data));
+      // Photos : on sauvegarde uniquement les métadonnées (pas le base64)
+      const lightPhotos = {};
+      Object.keys(photoStore).forEach(k => {
+        lightPhotos[k] = photoStore[k].map(p => ({datetime:p.datetime, label:p.label, caption:p.caption}));
+      });
+      localStorage.setItem('edl_photos_meta', JSON.stringify(lightPhotos));
+      const bar=document.getElementById('save-bar');
+      bar.style.display='block';
+      clearTimeout(bar._timer);
+      bar._timer=setTimeout(()=>bar.style.display='none',2000);
+    } catch(e) { console.warn('Save error:',e); }
+  }, 800);
+}
+
+function collectFormData() {
+  const g = id => (document.getElementById(id)||{}).value||'';
+  const data = {
+    bien: { adresse:g('bien-adresse'), npa:g('bien-npa'), ville:g('bien-ville'), canton:g('bien-canton'), type:g('bien-type'), pieces:g('bien-pieces'), etage:g('bien-etage'), surface:g('bien-surface'), ref:g('bien-ref') },
+    edl: { type:g('edl-type'), date:g('edl-date') },
+    bailleur: { nom:g('bailleur-nom'), tel:g('bailleur-tel'), adresse:g('bailleur-adresse'), email:g('bailleur-email') },
+    locataires: Array.from(document.querySelectorAll('.locataire-block')).map(b=>({
+      nom:(b.querySelector('[data-field=nom]')||{}).value||'',
+      tel:(b.querySelector('[data-field=tel]')||{}).value||'',
+      email:(b.querySelector('[data-field=email]')||{}).value||'',
+      date:(b.querySelector('[data-field=dateEntree]')||{}).value||''
+    })),
+    cles: Array.from(document.querySelectorAll('.key-row')).map(r=>({
+      type:r.querySelector('select').value, qty:r.querySelector('input').value
+    })),
+    compteurs: Array.from(document.querySelectorAll('.comp-row')).map(r=>({
+      type:(r.querySelector('select')||{}).value||'', val:(r.querySelector('input')||{}).value||''
+    })),
+    rooms: Array.from(document.querySelectorAll('.room-card')).map(rc=>({
+      id:rc.id.replace('room-',''),
+      name:rc.querySelector('h3').textContent,
+      state: (['bon','moyen','mauvais'].find(s=>rc.querySelector('.selected-'+s)))||'',
+      obs:(rc.querySelector('textarea')||{}).value||''
+    })),
+    remarques: g('remarques-generales'),
+    ville_signature: g('ville-signature'),
+    presentes: g('presentes'),
+  };
+  return data;
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem('edl_data');
+    if(!raw) return;
+    const d = JSON.parse(raw);
+
+    const s = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
+    s('bien-adresse', d.bien?.adresse); s('bien-npa', d.bien?.npa); s('bien-ville', d.bien?.ville);
+    s('bien-canton', d.bien?.canton); s('bien-type', d.bien?.type); s('bien-pieces', d.bien?.pieces);
+    s('bien-etage', d.bien?.etage); s('bien-surface', d.bien?.surface); s('bien-ref', d.bien?.ref);
+    s('edl-type', d.edl?.type); s('edl-date', d.edl?.date);
+    s('bailleur-nom', d.bailleur?.nom); s('bailleur-tel', d.bailleur?.tel);
+    s('bailleur-adresse', d.bailleur?.adresse); s('bailleur-email', d.bailleur?.email);
+    s('remarques-generales', d.remarques); s('ville-signature', d.ville_signature); s('presentes', d.presentes);
+
+    // Locataires
+    if(d.locataires?.length) {
+      const first = document.querySelector('#locataire-0');
+      if(first && d.locataires[0]) {
+        const f0 = d.locataires[0];
+        const setF = (field, val) => { const el=first.querySelector('[data-field='+field+']'); if(el&&val) el.value=val; };
+        setF('nom',f0.nom); setF('tel',f0.tel); setF('email',f0.email); setF('dateEntree',f0.date);
+      }
+      d.locataires.slice(1).forEach(loc => {
+        addLocataire();
+        const last = document.querySelector('.locataire-block:last-child');
+        if(last) {
+          const setF=(field,val)=>{ const el=last.querySelector('[data-field='+field+']'); if(el&&val) el.value=val; };
+          setF('nom',loc.nom); setF('tel',loc.tel); setF('email',loc.email); setF('dateEntree',loc.date);
+        }
+      });
+    }
+
+    // Rooms state + obs
+    if(d.rooms?.length) {
+      d.rooms.forEach(r => {
+        const rc = document.getElementById('room-'+r.id);
+        if(!rc) return;
+        if(r.state) { const btn=rc.querySelector('.state-btn:nth-child('+(r.state==='bon'?1:r.state==='moyen'?2:3)+')'); if(btn) { btn.classList.add('selected-'+r.state); } }
+        const ta=rc.querySelector('textarea'); if(ta&&r.obs) ta.value=r.obs;
+      });
+    }
+
+    // Photos
+    const rawPhotos = localStorage.getItem('edl_photos');
+    if(rawPhotos) {
+      const storedPhotos = JSON.parse(rawPhotos);
+      Object.keys(storedPhotos).forEach(key => {
+        photoStore[key] = storedPhotos[key]||[];
+        const grid = document.getElementById('photos-'+key);
+        if(!grid) return;
+        const addBtn = grid.querySelector('.photo-add');
+        photoStore[key].forEach((photo, idx) => {
+          const item=document.createElement('div'); item.className='photo-item';
+          const thumb=document.createElement('div'); thumb.className='photo-thumb';
+          thumb.innerHTML=`<img src="${photo.data}"><button class="remove-photo" onclick="removePhoto('${key}',${idx},this)">×</button>`;
+          const cap=document.createElement('textarea');
+          cap.className='photo-caption'; cap.rows=2; cap.placeholder='Légende...';
+          cap.value=photo.caption||'';
+          cap.addEventListener('input',()=>{ photoStore[key][idx].caption=cap.value; autoSave(); });
+          item.appendChild(thumb); item.appendChild(cap);
+          grid.insertBefore(item, addBtn);
+        });
+      });
+    }
+
+    updateNav();
+  } catch(e) { console.warn('Load error:', e); }
+}
+
+function clearAll() {
+  if(!confirm('Effacer toutes les données ?')) return;
+  localStorage.removeItem('edl_data');
+  localStorage.removeItem('edl_photos');
+  location.reload();
+}
+
+// ===== EXPORT / IMPORT =====
+function exportData() {
+  try {
+    const data = collectFormData();
+    const bundle = { version: 1, date: new Date().toISOString(), data, photos: photoStore };
+    const json = JSON.stringify(bundle);
+    const blob = new Blob([json], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const adresse = (document.getElementById('bien-adresse').value || 'edl').replace(/\s/g,'-').toLowerCase();
+    const date = new Date().toLocaleDateString('fr-CH').replace(/\//g,'-');
+    a.href = url; a.download = 'sauvegarde-edl-' + adresse + '-' + date + '.json';
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Erreur lors de la sauvegarde : ' + e.message); }
+}
+
+function importData(input) {
+  const file = input.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const bundle = JSON.parse(e.target.result);
+      if(!bundle.data) throw new Error('Fichier invalide');
+      if(!confirm('Importer ces données ? Les données actuelles seront remplacées.')) return;
+
+      // Sauvegarder les données texte dans localStorage (léger)
+      try { localStorage.setItem('edl_data', JSON.stringify(bundle.data)); } catch(ex) {}
+
+      // Les photos : on les charge directement en mémoire sans passer par localStorage
+      if(bundle.photos) {
+        photoStore = bundle.photos;
+        // Sauvegarder les photos sans les données base64 (juste métadonnées)
+        try {
+          const lightPhotos = {};
+          Object.keys(photoStore).forEach(k => {
+            lightPhotos[k] = photoStore[k].map(p => ({datetime: p.datetime, label: p.label, caption: p.caption}));
+          });
+          localStorage.setItem('edl_photos_meta', JSON.stringify(lightPhotos));
+        } catch(ex) {}
+      }
+
+      // Recharger l'interface avec les données
+      restoreFromBundle(bundle);
+      alert('✓ Import réussi !');
+    } catch(err) { alert('Erreur lors de l\'import : ' + err.message); }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+function restoreFromBundle(bundle) {
+  const d = bundle.data;
+  const s = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
+  s('bien-adresse',d.bien?.adresse); s('bien-npa',d.bien?.npa); s('bien-ville',d.bien?.ville);
+  s('bien-canton',d.bien?.canton); s('bien-type',d.bien?.type); s('bien-pieces',d.bien?.pieces);
+  s('bien-etage',d.bien?.etage); s('bien-surface',d.bien?.surface); s('bien-ref',d.bien?.ref);
+  s('edl-type',d.edl?.type); s('edl-date',d.edl?.date);
+  s('bailleur-nom',d.bailleur?.nom); s('bailleur-tel',d.bailleur?.tel);
+  s('bailleur-adresse',d.bailleur?.adresse); s('bailleur-email',d.bailleur?.email);
+  s('remarques-generales',d.remarques); s('ville-signature',d.ville_signature); s('presentes',d.presentes);
+
+  // Locataires
+  if(d.locataires?.length) {
+    const first = document.querySelector('#locataire-0');
+    if(first && d.locataires[0]) {
+      const f0=d.locataires[0];
+      const setF=(field,val)=>{const el=first.querySelector('[data-field='+field+']');if(el&&val)el.value=val;};
+      setF('nom',f0.nom);setF('tel',f0.tel);setF('email',f0.email);setF('dateEntree',f0.date);
+    }
+    d.locataires.slice(1).forEach(loc => {
+      addLocataire();
+      const last=document.querySelector('.locataire-block:last-child');
+      if(last){const setF=(field,val)=>{const el=last.querySelector('[data-field='+field+']');if(el&&val)el.value=val;};setF('nom',loc.nom);setF('tel',loc.tel);setF('email',loc.email);setF('dateEntree',loc.date);}
+    });
+  }
+
+  // Rooms
+  if(d.rooms?.length) {
+    d.rooms.forEach(r => {
+      const rc=document.getElementById('room-'+r.id); if(!rc) return;
+      if(r.state){const btn=rc.querySelector('.state-btn:nth-child('+(r.state==='bon'?1:r.state==='moyen'?2:3)+')');if(btn)btn.classList.add('selected-'+r.state);}
+      const ta=rc.querySelector('textarea');if(ta&&r.obs)ta.value=r.obs;
+    });
+  }
+
+  // Photos — restaurer depuis photoStore (déjà chargé en mémoire)
+  if(bundle.photos) {
+    Object.keys(bundle.photos).forEach(key => {
+      photoStore[key] = bundle.photos[key]||[];
+      const grid=document.getElementById('photos-'+key); if(!grid) return;
+      const addBtn=grid.querySelector('.photo-add');
+      photoStore[key].forEach((photo,idx) => {
+        const item=document.createElement('div'); item.className='photo-item';
+        const thumb=document.createElement('div'); thumb.className='photo-thumb';
+        thumb.innerHTML=`<img src="${photo.data}"><button class="remove-photo" onclick="removePhoto('${key}',${idx},this)">×</button>`;
+        const cap=document.createElement('textarea');
+        cap.className='photo-caption'; cap.rows=2; cap.placeholder='Légende...';
+        cap.value=photo.caption||'';
+        cap.addEventListener('input',()=>{photoStore[key][idx].caption=cap.value;autoSave();});
+        item.appendChild(thumb); item.appendChild(cap);
+        grid.insertBefore(item, addBtn);
+      });
+    });
+  }
+  updateNav();
+}
+
+// ===== SUMMARY =====
+function buildSummary() {
+  const g=id=>(document.getElementById(id)||{}).value||'—';
+  const adresse=g('bien-adresse'), ville=g('bien-ville'), npa=g('bien-npa'), surface=g('bien-surface');
+  const type=g('bien-type'), pieces=g('bien-pieces'), etage=g('bien-etage'), bailleur=g('bailleur-nom'), date=g('edl-date');
+  const edlType=g('edl-type')==='entree'?"d'entrée":"de sortie";
+  const locNom=(document.querySelector('#locataire-0 [data-field=nom]')||{}).value||'—';
+  let roomsHtml='';
+  document.querySelectorAll('.room-card').forEach(rc=>{
+    const name=rc.querySelector('h3').textContent;
+    const sel=rc.querySelector('.state-btn[class*=selected]');
+    const state=sel?sel.textContent.trim():'Non renseigné';
+    const key=rc.id.replace('room-','');
+    const n=(photoStore[key]||[]).length;
+    const obs=(rc.querySelector('textarea')||{}).value||'';
+    roomsHtml+=`<div class="summary-row"><span>${name}</span><span>${state}${n?' · '+n+' 📷':''}</span></div>`;
+  });
+  document.getElementById('summary-content').innerHTML=`
+    <div class="card"><div class="card-header">Récapitulatif — État des lieux ${edlType}</div><div class="card-body">
+      <div class="summary-block"><h4>Bien</h4>
+        <div class="summary-row"><span>Adresse</span><span>${adresse}${npa?', '+npa:''} ${ville}</span></div>
+        <div class="summary-row"><span>Type</span><span>${type} · ${pieces} pièces · ${etage}</span></div>
+        <div class="summary-row"><span>Surface</span><span>${surface} m²</span></div>
+        <div class="summary-row"><span>Date</span><span>${date}</span></div>
+      </div>
+      <div class="summary-block"><h4>Parties</h4>
+        <div class="summary-row"><span>Bailleur</span><span>${bailleur}</span></div>
+        <div class="summary-row"><span>Locataire</span><span>${locNom}</span></div>
+      </div>
+      <div class="summary-block"><h4>Pièces</h4>${roomsHtml}</div>
+    </div></div>`;
+}
+
+// ===== PDF =====
+async function generatePDF() {
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,M=18; let y=0;
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const adresse=g('bien-adresse'),ville=g('bien-ville'),npa=g('bien-npa'),canton=g('bien-canton');
+  const surface=g('bien-surface')||'—',type=g('bien-type'),pieces=g('bien-pieces')||'—',etage=g('bien-etage')||'—',ref=g('bien-ref');
+  const bNom=g('bailleur-nom')||'—',bAdresse=g('bailleur-adresse'),bTel=g('bailleur-tel'),bEmail=g('bailleur-email');
+  const edlDate=g('edl-date'),edlTypeVal=g('edl-type');
+  const edlTypeLabel=edlTypeVal==='entree'?"d'entrée":"de sortie";
+  const villeSign=g('ville-signature')||ville,remarques=g('remarques-generales'),presentes=g('presentes');
+  const locataires=Array.from(document.querySelectorAll('.locataire-block')).map(b=>({
+    nom:(b.querySelector('[data-field=nom]')||{}).value||'—',
+    tel:(b.querySelector('[data-field=tel]')||{}).value||'',
+    email:(b.querySelector('[data-field=email]')||{}).value||'',
+    date:(b.querySelector('[data-field=dateEntree]')||{}).value||''
+  }));
+  const fmtDate=d=>{if(!d)return'';const p=d.split('-');return p[2]+'.'+p[1]+'.'+p[0];};
+  const stateInfo=cls=>{
+    if(cls==='bon') return{label:'Bon état',r:45,g:106,b:79};
+    if(cls==='moyen') return{label:'Moyen',r:184,g:134,b:11};
+    if(cls==='mauvais') return{label:'Mauvais',r:139,g:32,b:32};
+    return null;
+  };
+  let globalPhotoNum=0;
+  const photoNumMap={};
+  const orderedSections=[];
+  ['cles','compteurs'].forEach(k=>{if((photoStore[k]||[]).length) orderedSections.push(k);});
+  document.querySelectorAll('.room-card').forEach(rc=>{
+    const k=rc.id.replace('room-','');
+    if((photoStore[k]||[]).length) orderedSections.push(k);
+  });
+  orderedSections.forEach(k=>{photoNumMap[k]=(photoStore[k]||[]).map(()=>++globalPhotoNum);});
+
+  const addPage=()=>{doc.addPage();y=18;subHdr();};
+  const checkY=(n=20)=>{if(y+n>278)addPage();};
+  const subHdr=()=>{
+    doc.setFontSize(8);doc.setTextColor(130,130,130);doc.setFont('helvetica','normal');
+    const sub=[adresse,npa&&ville?npa+' '+ville:'',ref?'Réf. '+ref:''].filter(Boolean).join(', ');
+    if(sub) doc.text(sub,M,8);
+  };
+  const hLine=()=>{doc.setDrawColor(200,180,140);doc.line(M,y,W-M,y);y+=5;};
+  const band=(title)=>{
+    checkY(14);
+    doc.setFillColor(240,232,210);doc.rect(M-2,y-5,W-2*M+4,9,'F');
+    doc.setDrawColor(200,180,140);doc.rect(M-2,y-5,W-2*M+4,9,'S');
+    doc.setTextColor(20,20,20);doc.setFontSize(11);doc.setFont('helvetica','bold');
+    doc.text(title,M,y);
+    doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');y+=8;
+  };
+  const t=(str,x,yy,opts)=>{doc.text(str||'',x,yy,opts||{});};
+
+  // HEADER
+  y=18;
+  doc.setFillColor(26,46,74);doc.rect(0,0,W,30,'F');
+  doc.setTextColor(255,255,255);doc.setFontSize(17);doc.setFont('helvetica','bold');
+  t('ÉTAT DES LIEUX '+edlTypeLabel.toUpperCase(),W/2,13,{align:'center'});
+  doc.setFontSize(11);doc.setFont('helvetica','normal');
+  t('du '+fmtDate(edlDate),W/2,23,{align:'center'});
+  y=38;
+
+  band('Objet'+(ref?' (Réf. : '+ref+')':''));
+  doc.setFontSize(10);doc.setTextColor(30,30,30);
+  t(type+' '+pieces+' pces',M,y);y+=5;t(adresse,M,y);y+=5;
+  t([npa,ville,canton].filter(Boolean).join(' '),M,y);
+  let ry=y-10;
+  doc.setTextColor(100,100,100);doc.setFontSize(9);t('Étage',120,ry);doc.setTextColor(30,30,30);doc.setFontSize(10);t(etage,155,ry);ry+=6;
+  doc.setTextColor(100,100,100);doc.setFontSize(9);t('Surface (m²)',120,ry);doc.setTextColor(30,30,30);doc.setFontSize(10);t(surface,155,ry);
+  y+=7;hLine();
+
+  band('Bailleur');
+  doc.setFontSize(10);doc.setTextColor(30,30,30);t(bNom,M,y);y+=6;
+  if(bAdresse){doc.setFontSize(9);t(bAdresse,M,y);y+=5;}
+  if(bTel){doc.setFontSize(9);doc.setTextColor(100,100,100);t('Tél.',M,y);doc.setTextColor(30,30,30);t(bTel,55,y);y+=5;}
+  if(bEmail){doc.setFontSize(9);doc.setTextColor(100,100,100);t('Email',M,y);doc.setTextColor(30,30,30);t(bEmail,55,y);y+=5;}
+  y+=2;hLine();
+
+  locataires.forEach(loc=>{
+    band('Locataire entrant'+(loc.date?' (Date d\'entrée : '+fmtDate(loc.date)+')':''));
+    doc.setFontSize(10);doc.setTextColor(30,30,30);t(loc.nom,M,y);y+=6;
+    if(loc.tel){doc.setFontSize(9);doc.setTextColor(100,100,100);t('Tél.',M,y);doc.setTextColor(30,30,30);t(loc.tel,55,y);y+=5;}
+    if(loc.email){doc.setFontSize(9);doc.setTextColor(100,100,100);t('Email',M,y);doc.setTextColor(30,30,30);t(loc.email,55,y);y+=5;}
+    y+=2;hLine();
+  });
+
+  // Clés
+  band('Clés remises');
+  document.querySelectorAll('.key-row').forEach(row=>{
+    const tp=row.querySelector('select').value,q=row.querySelector('input').value;
+    checkY(7);doc.setFontSize(10);doc.setTextColor(30,30,30);t('- '+tp+' : '+q+' clé(s)',M,y);y+=6;
+  });
+  const clePhotos=photoStore['cles']||[],cleNums=photoNumMap['cles']||[];
+  clePhotos.forEach((ph,i)=>{
+    checkY(10);
+    if(ph.caption){doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);t('- '+ph.caption+' :',M,y);y+=5;doc.setFont('helvetica','normal');doc.setFontSize(9);t('    (photo '+cleNums[i]+')',M,y);y+=5;}
+    else{doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);t('- (photo '+cleNums[i]+')',M,y);y+=5;}
+  });
+  y+=2;hLine();
+
+  band('Relevé des compteurs / technique');
+  document.querySelectorAll('.comp-row').forEach(row=>{
+    const s=row.querySelector('select'),i=row.querySelector('input');
+    if(s&&i){checkY(7);doc.setFontSize(10);doc.setTextColor(30,30,30);t('- '+s.value+' : '+(i.value||'—'),M,y);y+=6;}
+  });
+  const compPhotos=photoStore['compteurs']||[],compNums=photoNumMap['compteurs']||[];
+  compPhotos.forEach((ph,i)=>{
+    checkY(10);
+    if(ph.caption){doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);t('- '+ph.caption+' :',M,y);y+=5;doc.setFont('helvetica','normal');doc.setFontSize(9);t('    (photo '+compNums[i]+')',M,y);y+=5;}
+    else{doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);t('- (photo '+compNums[i]+')',M,y);y+=5;}
+  });
+  y+=4;
+
+  // PIÈCES
+  addPage();
+  doc.setFontSize(9);doc.setFont('helvetica','italic');doc.setTextColor(60,60,60);
+  const intro='Le locataire entrant prend acte que les locaux lui sont remis propres et en ordre, à l\'exception ou en tenant compte des points désignés ci-dessous :';
+  doc.splitTextToSize(intro,W-2*M).forEach(l=>{t(l,M,y);y+=5;});
+  doc.setFont('helvetica','normal');y+=5;
+
+  document.querySelectorAll('.room-card').forEach(rc=>{
+    const name=rc.querySelector('h3').textContent;
+    const key=rc.id.replace('room-','');
+    const selBtn=rc.querySelector('.state-btn[class*=selected]');
+    const stateClass=selBtn?(['bon','moyen','mauvais'].find(s=>selBtn.classList.contains('selected-'+s))):null;
+    const obs=(rc.querySelector('textarea')||{}).value||'';
+    const roomNums=photoNumMap[key]||[];
+    const roomPhotos=photoStore[key]||[];
+    checkY(18);
+    doc.setFillColor(240,232,210);doc.rect(M-2,y-5,W-2*M+4,9,'F');
+    doc.setDrawColor(200,180,140);doc.rect(M-2,y-5,W-2*M+4,9,'S');
+    doc.setTextColor(20,20,20);doc.setFontSize(11);doc.setFont('helvetica','bold');
+    t(name,M,y);
+    if(stateClass){const si=stateInfo(stateClass);const bw=32,bx=W-M-bw-2;doc.setFillColor(si.r,si.g,si.b);doc.roundedRect(bx,y-4,bw,7,1.5,1.5,'F');doc.setTextColor(255,255,255);doc.setFontSize(8);doc.setFont('helvetica','bold');t(si.label,bx+bw/2,y,{align:'center'});}
+    doc.setFont('helvetica','normal');y+=9;
+    if(roomPhotos.length){
+      roomPhotos.forEach((ph,i)=>{
+        if(ph.caption){checkY(10);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);t('- '+ph.caption+' :',M,y);y+=5;doc.setFont('helvetica','normal');doc.setFontSize(9);t('    (photo '+roomNums[i]+')',M,y);y+=5;}
+        else if(roomNums[i]){checkY(7);doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);t('- (photo '+roomNums[i]+')',M,y);y+=5;}
+      });
+    }
+    if(obs){checkY(12);doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);t('Observations :',M,y);y+=5;doc.setFont('helvetica','normal');doc.setFontSize(9);doc.splitTextToSize(obs,W-2*M).forEach(l=>{checkY(5);t(l,M,y);y+=5;});}
+    y+=3;doc.setDrawColor(220,210,190);doc.line(M,y,W-M,y);y+=6;
+  });
+
+  if(remarques){checkY(20);band('Remarques générales');doc.splitTextToSize(remarques,W-2*M).forEach(l=>{checkY(5);doc.setFontSize(10);t(l,M,y);y+=5;});y+=4;hLine();}
+
+  // PAGE SIGNATURES — toujours sur nouvelle page
+  addPage();
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+  const c1='Le locataire entrant se déclare d\'accord de supporter les frais, de quelque nature qu\'ils soient, qui pourraient résulter de la reprise par lui d\'objets ou d\'installations de son prédécesseur (tapis tendus, machines à laver, etc.). Il s\'engage en cas de départ, et à réquisition du propriétaire, à enlever à ses frais ces objets ou installations et à remettre les lieux en leur état primitif.';
+  doc.splitTextToSize(c1,W-2*M).forEach(l=>{checkY(6);t(l,M,y);y+=5;});y+=4;
+  const c2='Le(s) locataire(s) reconnaît(issent) être responsable(s) de la (des) remise(s) en état indiquée(s) dans la présente convention pour le(s) poste(s) indiqué(s) \'\'à la charge du locataire sortant\'\'';
+  doc.splitTextToSize(c2,W-2*M).forEach(l=>{checkY(6);t(l,M,y);y+=5;});y+=6;
+  doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+  t('Présent(s) lors de l\'état des lieux : ',M,y);doc.setFont('helvetica','normal');
+  t(bNom+' (Bailleur)',M+72,y);y+=5;
+  locataires.forEach(loc=>{checkY(6);t(loc.nom+' (Locataire entrant)',M+72,y);y+=5;});
+  if(presentes) presentes.split('\n').forEach(l=>{if(l.trim()){checkY(6);t(l.trim(),M+72,y);y+=5;}});
+  y+=6;
+  doc.setFontSize(12);doc.setFont('helvetica','bold');
+  t('Ainsi fait et signé à '+villeSign+', le '+fmtDate(edlDate),W/2,y,{align:'center'});y+=14;
+  const now=new Date();
+  const nowStr=now.toLocaleDateString('fr-CH')+' '+now.toLocaleTimeString('fr-CH',{hour:'2-digit',minute:'2-digit'});
+  doc.setFontSize(10);doc.setFont('helvetica','bold');t('Signature(s) :',M,y);y+=6;
+  const sw=70,sh=32;
+  // Collecter toutes les signatures : bailleur + locataires
+  const sigIds = ['sig-bailleur', 'sig-locataire'];
+  const sigLabels = [bNom, locataires[0].nom];
+  const sigTitles = ['Bailleur', 'Locataire entrant'];
+  for(let i=1; i<locataires.length; i++) {
+    sigIds.push('sig-locataire-'+i);
+    sigLabels.push(locataires[i].nom);
+    sigTitles.push('Locataire entrant');
+  }
+  // Afficher par paires
+  for(let i=0; i<sigIds.length; i+=2) {
+    checkY(sh+20);
+    const lx=M+5, rx=W/2+10;
+    const positions=[lx, rx];
+    for(let c=0; c<2 && i+c<sigIds.length; c++) {
+      const xp=positions[c];
+      doc.setFont('helvetica','bold');doc.setFontSize(10);t(sigTitles[i+c],xp,y);
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(60,60,60);t(sigLabels[i+c],xp,y+5);
+      try{doc.addImage(document.getElementById(sigIds[i+c]).toDataURL('image/png'),'PNG',xp,y+9,sw,sh);}catch(ex){}
+      doc.setFontSize(8);t(nowStr,xp,y+9+sh+3);
+    }
+    y+=sh+20;
+  }
+  doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(100,100,100);
+  const mention='Par leur signature manuscrite, le(s) locataire(s) et le bailleur ont reconnu : la validité de cet état des lieux numérique / avoir pris connaissance de ce document / avoir accepté l\'intégralité de son contenu / avoir accepté que leur signature soit apposée au document.';
+  doc.splitTextToSize(mention,W-2*M).forEach(l=>{checkY(6);t(l,M,y);y+=5;});
+  const totalPagesMain=doc.getNumberOfPages();
+  checkY(8);doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(60,60,60);
+  y+=4;t('Ce document comprend ['+totalPagesMain+'] pages, sans compter les annexes photos.',M,y);y+=7;
+  const emailList=[];
+  if(bNom&&bEmail) emailList.push(bNom+' ('+bEmail+')');
+  locataires.forEach(loc=>{if(loc.nom&&loc.email) emailList.push(loc.nom+' ('+loc.email+')');});
+  if(emailList.length){checkY(6+emailList.length*6);doc.setFontSize(9);t('Copie(s) par e-mail à :',M,y);y+=5;emailList.forEach(em=>{checkY(6);t(em,M+45,y);y+=5;});}
+
+  // ANNEXE PHOTOS
+  if(orderedSections.some(k=>(photoStore[k]||[]).length>0)){
+    addPage();
+    doc.setFillColor(26,46,74);doc.rect(0,0,W,14,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(14);doc.setFont('helvetica','bold');
+    t('Annexes photos :',M,10);y=22;
+    let pNum=0;
+    for(const key of orderedSections){
+      const photos=photoStore[key]||[];if(!photos.length) continue;
+      const roomEl=document.getElementById('room-'+key);
+      const sLabel=roomEl?roomEl.querySelector('h3').textContent:(key==='cles'?'Clés':key==='compteurs'?'Compteur':key);
+      for(let i=0; i<photos.length; i+=2){
+        checkY(82);
+        const yStart=y;let maxH=0;
+        for(let c=0;c<2&&i+c<photos.length;c++){
+          const ph=photos[i+c];
+          const line=['Photo '+(pNum+c+1),sLabel,ph.caption||'',ph.datetime||''].filter(Boolean).join('  |  ');
+          const lines=doc.splitTextToSize(line,82);
+          maxH=Math.max(maxH,lines.length*4+2);
+        }
+        for(let c=0;c<2&&i+c<photos.length;c++){
+          pNum++;const ph=photos[i+c];const xp=c===0?M:W/2+2;y=yStart;
+          const line=['Photo '+pNum,sLabel,ph.caption||'',ph.datetime||''].filter(Boolean).join('  |  ');
+          doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(30,30,30);
+          doc.splitTextToSize(line,82).forEach(l=>{t(l,xp,y);y+=4;});
+          const iy=yStart+maxH;
+          try{doc.addImage(ph.data,'JPEG',xp,iy,82,58);}catch(e){try{doc.addImage(ph.data,'PNG',xp,iy,82,58);}catch(e2){}}
+        }
+        y=yStart+maxH+60;y+=8;
+      }
+    }
+  }
+
+  const totalP=doc.getNumberOfPages();
+  for(let i=1;i<=totalP;i++){
+    doc.setPage(i);
+    doc.setDrawColor(200,169,110);doc.line(M,288,W-M,288);
+    doc.setFontSize(9);doc.setTextColor(150,150,150);doc.setFont('helvetica','normal');
+    t(i+' / '+totalP,W/2,293,{align:'center'});
+    if(i>1){const sub=[adresse,npa&&ville?npa+' '+ville:'',ref?'Réf. '+ref:''].filter(Boolean).join(', ');if(sub){doc.setFontSize(7);t(sub,M,293);}}
+  }
+  doc.save('edl-'+(adresse.replace(/\s/g,'-').toLowerCase()||'logement')+'-'+(edlDate||'date')+'.pdf');
+}
+  // Register Service Worker
+  if('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(e => console.log('SW error:', e));
+  }
+</script>
+</body>
+</html>
